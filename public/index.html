@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat en Tiempo Real - Local</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Login Screen -->
+  <div id="login-container" class="container">
+    <div class="card login-card">
+      <div class="card-header">
+        <h1>Bienvenido al Chat</h1>
+        <p class="subtitle">Introduce tu nombre de pantalla para continuar</p>
+      </div>
+      <form id="login-form">
+        <div class="form-group">
+          <label for="username-input">Nombre de pantalla</label>
+          <input type="text" id="username-input" autocomplete="off" maxlength="32" placeholder="Ej. JuanPerez" required>
+          <span class="char-counter" id="login-char-counter">0/32</span>
+        </div>
+        <div id="login-error" class="error-msg hidden"></div>
+        <button type="submit" class="btn btn-primary">Ingresar al Chat</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Main Chat Workspace -->
+  <div id="main-container" class="container hidden">
+    <!-- Sidebar: Channels -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Canales</h2>
+      </div>
+      
+      <div class="channels-section">
+        <ul id="channels-list">
+          <!-- Channels loaded dynamically -->
+        </ul>
+      </div>
+
+      <div class="sidebar-footer">
+        <form id="create-channel-form">
+          <input type="text" id="new-channel-input" autocomplete="off" maxlength="64" placeholder="Nuevo canal..." required>
+          <button type="submit" class="btn btn-action-add" title="Crear canal">+</button>
+        </form>
+        <div id="create-channel-error" class="error-msg hidden"></div>
+      </div>
+    </aside>
+
+    <!-- Center: Chat Window -->
+    <main class="chat-area">
+      <header class="chat-header">
+        <div class="channel-info">
+          <span class="hashtag">#</span>
+          <h3 id="active-channel-name">Selecciona un canal</h3>
+        </div>
+      </header>
+
+      <div class="messages-container" id="messages-container">
+        <!-- Messages loaded dynamically -->
+        <div class="welcome-message" id="welcome-message">
+          <p>Selecciona un canal del panel izquierdo para comenzar a chatear.</p>
+        </div>
+      </div>
+
+      <footer class="chat-footer">
+        <form id="message-form" class="hidden">
+          <div class="textarea-wrapper">
+            <textarea id="message-input" rows="1" maxlength="2000" placeholder="Enviar mensaje..." required></textarea>
+            <div class="chat-input-controls">
+              <span class="char-counter" id="message-char-counter">0/2000</span>
+            </div>
+          </div>
+          <button type="submit" class="btn btn-send">Enviar</button>
+        </form>
+        <div id="message-error" class="error-msg error-msg-toast hidden"></div>
+      </footer>
+    </main>
+
+    <!-- Right Panel: Info and Connection Count -->
+    <section class="info-panel">
+      <div class="info-header">
+        <h2>Detalles</h2>
+      </div>
+
+      <div class="info-body">
+        <div class="status-card">
+          <span class="status-indicator online"></span>
+          <div class="status-text">
+            <span class="number" id="connections-count">0</span>
+            <span class="label">Usuarios Conectados</span>
+          </div>
+        </div>
+
+        <div class="user-profile">
+          <div class="profile-avatar">
+            <span id="profile-initials">U</span>
+          </div>
+          <div class="profile-details">
+            <span class="username" id="current-username">Usuario</span>
+            <span class="role">Sesion Activa</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-footer">
+        <button id="logout-btn" class="btn btn-danger">Salir de la sesion</button>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
