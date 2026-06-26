@@ -6,7 +6,24 @@ const channelSchema = new mongoose.Schema({
     required: [true, 'El nombre del canal no puede estar vacio'],
     trim: true,
     maxlength: [64, 'El nombre del canal no puede superar 64 caracteres']
-  }
+  },
+  creatorId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  isPrivate: {
+    type: Boolean,
+    default: false
+  },
+  accessKeyHash: {
+    type: String,
+    default: null
+  },
+  members: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }]
 }, {
   timestamps: true
 });

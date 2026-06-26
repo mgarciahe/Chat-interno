@@ -1,8 +1,11 @@
 // Application State
 let currentUser = null;
+let currentUserId = null;
 let activeChannel = null;
 let ws = null;
 let reconnectTimer = null;
+const unlockedPrivateChannels = new Set();
+let pendingChannelToUnlock = null;
 
 // DOM Elements
 const loginContainer = document.getElementById('login-container');
@@ -29,9 +32,15 @@ const registerError = document.getElementById('register-error');
 const channelsList = document.getElementById('channels-list');
 const createChannelForm = document.getElementById('create-channel-form');
 const newChannelInput = document.getElementById('new-channel-input');
+const newChannelKey = document.getElementById('new-channel-key');
 const createChannelError = document.getElementById('create-channel-error');
+// R1: Type selector buttons
+const typeBtnPublic = document.getElementById('type-btn-public');
+const typeBtnPrivate = document.getElementById('type-btn-private');
+let selectedChannelType = 'public'; // 'public' | 'private'
 
 const activeChannelName = document.getElementById('active-channel-name');
+const channelActions = document.getElementById('channel-actions');
 const messagesContainer = document.getElementById('messages-container');
 const messageForm = document.getElementById('message-form');
 const messageInput = document.getElementById('message-input');
@@ -42,6 +51,34 @@ const connectionsCount = document.getElementById('connections-count');
 const profileInitials = document.getElementById('profile-initials');
 const currentUsername = document.getElementById('current-username');
 const logoutBtn = document.getElementById('logout-btn');
+
+// Private Channel Key Modal Elements (Requirement 3.1)
+const keyModal = document.getElementById('key-modal');
+const keyForm = document.getElementById('key-form');
+const channelAccessKeyInput = document.getElementById('channel-access-key');
+const keyError = document.getElementById('key-error');
+const cancelKeyBtn = document.getElementById('cancel-key-btn');
+const confirmKeyBtn = document.getElementById('confirm-key-btn');
+
+// R1 + R2: Type selector toggle logic
+function setChannelType(type) {
+  selectedChannelType = type;
+  if (type === 'private') {
+    typeBtnPrivate.classList.add('active');
+    typeBtnPublic.classList.remove('active');
+    newChannelKey.classList.remove('hidden');
+    newChannelKey.setAttribute('required', '');
+  } else {
+    typeBtnPublic.classList.add('active');
+    typeBtnPrivate.classList.remove('active');
+    newChannelKey.classList.add('hidden');
+    newChannelKey.removeAttribute('required');
+    newChannelKey.value = '';
+  }
+}
+
+typeBtnPublic.addEventListener('click', () => setChannelType('public'));
+typeBtnPrivate.addEventListener('click', () => setChannelType('private'));
 
 // Character counters
 registerUsernameInput.addEventListener('input', () => {
@@ -87,6 +124,7 @@ async function init() {
     
     if (data.username) {
       currentUser = data.username;
+      currentUserId = data.userId;
       showWorkspace();
     } else {
       showLogin();
@@ -108,6 +146,12 @@ function showLogin() {
   registerUsernameInput.value = '';
   registerPasswordInput.value = '';
   registerCharCounter.textContent = '0/32';
+  
+  // Reset private channels states (Requirement 10.4)
+  currentUserId = null;
+  unlockedPrivateChannels.clear();
+  pendingChannelToUnlock = null;
+  if (newChannelKey) newChannelKey.value = '';
   
   // Default to login tab
   tabLogin.click();
@@ -151,6 +195,7 @@ loginForm.addEventListener('submit', async (e) => {
     
     if (response.ok) {
       currentUser = data.username;
+      currentUserId = data.userId;
       showWorkspace();
     } else {
       showError(loginError, data.error || 'Error al iniciar sesion');
@@ -185,6 +230,7 @@ registerForm.addEventListener('submit', async (e) => {
     
     if (response.ok) {
       currentUser = data.username;
+      currentUserId = data.userId;
       showWorkspace();
     } else {
       showError(registerError, data.error || 'Error al crear la cuenta');
@@ -244,7 +290,7 @@ function renderChannels(channels) {
     
     const hashtag = document.createElement('span');
     hashtag.className = 'channel-hashtag';
-    hashtag.textContent = '#';
+    hashtag.textContent = channel.isPrivate ? '🔒' : '#'; // (Requirement 2.3)
     
     const nameSpan = document.createElement('span');
     nameSpan.textContent = channel.name;
@@ -257,36 +303,57 @@ function renderChannels(channels) {
   });
 }
 
-// Create Channel Form Submit
+// Create Channel Form Submit (R3, R4)
 createChannelForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   createChannelError.classList.add('hidden');
-  
+
+  // R3.3: Validate name
   const name = newChannelInput.value.trim();
   if (name.length === 0) {
-    showError(createChannelError, 'El nombre del canal no puede estar vacio');
+    showError(createChannelError, 'El nombre del canal no puede estar vacío');
     return;
   }
-  
   if (name.length > 64) {
     showError(createChannelError, 'El nombre del canal no puede superar 64 caracteres');
     return;
   }
 
+  const isPrivate = selectedChannelType === 'private';
+  const accessKey = newChannelKey.value;
+
+  // R3.1: Key required when private
+  if (isPrivate && accessKey.trim() === '') {
+    showError(createChannelError, 'La clave de acceso es obligatoria para canales privados');
+    return;
+  }
+
+  // R3.2: Key format validation
+  if (isPrivate && !/^[a-zA-Z0-9]{7}$/.test(accessKey)) {
+    showError(createChannelError, 'La clave debe tener exactamente 7 caracteres alfanuméricos');
+    return;
+  }
+
+  // R3.4: Build payload
+  const payload = { name, isPrivate };
+  if (isPrivate) payload.accessKey = accessKey;
+
   try {
     const response = await fetch('/api/channels', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
+      body: JSON.stringify(payload)
     });
-    
+
     const data = await response.json();
-    
+
     if (response.ok) {
+      // R7.1 + R7.2: Reset form to clean public state
       newChannelInput.value = '';
+      setChannelType('public');
       createChannelError.classList.add('hidden');
-      // Selection of new channel is optional, we just wait for the websocket broadcast to populate it
     } else {
+      // R7.3: Keep values on error so user can retry
       showError(createChannelError, data.error || 'Error al crear el canal');
     }
   } catch (err) {
@@ -296,13 +363,68 @@ createChannelForm.addEventListener('submit', async (e) => {
 
 // Select and Load Channel Messages
 async function selectChannel(channel) {
+  // If user is not the creator, is it private, and they haven't verified it yet?
+  const isCreator = channel.creatorId === currentUserId;
+  if (channel.isPrivate && !isCreator && !unlockedPrivateChannels.has(channel._id)) {
+    // Attempt message loading first to check server-side verifiedChannels session state
+    try {
+      const response = await fetch(`/api/channels/${channel._id}/messages`);
+      if (response.status === 403) {
+        // Not verified yet: open key modal (Requirement 3.1)
+        pendingChannelToUnlock = channel;
+        openKeyPromptModal();
+        return;
+      } else if (!response.ok) {
+        showToastError('Error al acceder al canal');
+        return;
+      } else {
+        // Already verified on server, update client state
+        unlockedPrivateChannels.add(channel._id);
+      }
+    } catch (err) {
+      showToastError('Error de conexión');
+      return;
+    }
+  }
+
   if (activeChannel && activeChannel._id === channel._id) {
     return; // Already selected
   }
   
   activeChannel = channel;
-  activeChannelName.textContent = channel.name;
   
+  // Set active channel name and lock/unlocked icons (Requirement 7.5)
+  activeChannelName.innerHTML = '';
+  if (channel.isPrivate) {
+    const lockIcon = document.createElement('span');
+    lockIcon.className = 'lock-icon';
+    lockIcon.textContent = '🔓 ';
+    activeChannelName.appendChild(lockIcon);
+  }
+  const nameText = document.createTextNode(channel.name);
+  activeChannelName.appendChild(nameText);
+  
+  // Render buttons in active channel actions container (Requirement 9.3, 10.3)
+  if (channelActions) {
+    channelActions.innerHTML = '';
+    const activeIsCreator = channel.creatorId === currentUserId;
+    if (activeIsCreator) {
+      const deleteBtn = document.createElement('button');
+      deleteBtn.id = 'delete-channel-btn';
+      deleteBtn.className = 'btn-header-danger';
+      deleteBtn.textContent = 'Eliminar Canal';
+      deleteBtn.addEventListener('click', deleteActiveChannel);
+      channelActions.appendChild(deleteBtn);
+    } else {
+      const leaveBtn = document.createElement('button');
+      leaveBtn.id = 'leave-channel-btn';
+      leaveBtn.className = 'btn-header-secondary';
+      leaveBtn.textContent = 'Salir del Canal';
+      leaveBtn.addEventListener('click', leaveActiveChannel);
+      channelActions.appendChild(leaveBtn);
+    }
+  }
+
   // Highlight active channel in UI list
   const items = channelsList.querySelectorAll('.channel-item');
   items.forEach(item => {
@@ -580,7 +702,7 @@ function connectWebSocket() {
     }
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = async (event) => {
     try {
       const data = JSON.parse(event.data);
 
@@ -592,6 +714,23 @@ function connectWebSocket() {
         case 'channel_created':
           // Reload the channels list in sidebar
           loadChannels();
+          break;
+
+        case 'channel_deleted':
+          // Reload the channels list in sidebar (Requirement 9.6)
+          await loadChannels();
+          // If the deleted channel was the active channel, clear view
+          if (activeChannel && activeChannel._id === data.channelId) {
+            activeChannel = null;
+            activeChannelName.textContent = 'Selecciona un canal';
+            messagesContainer.innerHTML = `
+              <div class="welcome-message">
+                <p>El canal activo ha sido eliminado por su creador.</p>
+              </div>
+            `;
+            messageForm.classList.add('hidden');
+            if (channelActions) channelActions.innerHTML = '';
+          }
           break;
 
         case 'message':
@@ -777,6 +916,140 @@ function cleanupRecordingState() {
   cancelRecordBtn.disabled = false;
   mediaRecorder = null;
   audioChunks = [];
+}
+
+// Modal functions (Requirement 3.4, 7.1 - 7.4)
+function openKeyPromptModal() {
+  if (keyModal) {
+    keyModal.classList.remove('hidden');
+    channelAccessKeyInput.value = '';
+    keyError.classList.add('hidden');
+    channelAccessKeyInput.focus();
+  }
+}
+
+function closeKeyPromptModal() {
+  if (keyModal) {
+    keyModal.classList.add('hidden');
+    keyError.classList.add('hidden');
+    pendingChannelToUnlock = null;
+  }
+}
+
+if (cancelKeyBtn) {
+  cancelKeyBtn.addEventListener('click', () => {
+    closeKeyPromptModal();
+  });
+}
+
+if (keyForm) {
+  keyForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    keyError.classList.add('hidden');
+
+    const accessKey = channelAccessKeyInput.value;
+    if (!/^[a-zA-Z0-9]{7}$/.test(accessKey)) {
+      showError(keyError, 'La clave debe tener exactamente 7 caracteres alfanuméricos');
+      return;
+    }
+
+    if (!pendingChannelToUnlock) return;
+
+    // Loading state (Requirement 7.1)
+    confirmKeyBtn.disabled = true;
+    cancelKeyBtn.disabled = true;
+    confirmKeyBtn.textContent = 'Confirmando...';
+
+    try {
+      const response = await fetch(`/api/channels/${pendingChannelToUnlock._id}/verify-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessKey })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        // Success: unlock channel (Requirement 7.2)
+        unlockedPrivateChannels.add(pendingChannelToUnlock._id);
+        const channelToOpen = pendingChannelToUnlock;
+        closeKeyPromptModal();
+        await selectChannel(channelToOpen);
+      } else if (response.status === 403) {
+        // Incorrect key (Requirement 7.3)
+        showError(keyError, 'Clave incorrecta. Inténtalo de nuevo.');
+      } else {
+        showError(keyError, data.error || 'Error al validar la clave.');
+      }
+    } catch (err) {
+      // Network error (Requirement 7.4)
+      showError(keyError, 'Error de conexión. Inténtalo de nuevo.');
+    } finally {
+      // Reset loading state
+      confirmKeyBtn.disabled = false;
+      cancelKeyBtn.disabled = false;
+      confirmKeyBtn.textContent = 'Confirmar';
+    }
+  });
+}
+
+// Delete Channel by Creator (Requirement 9)
+async function deleteActiveChannel() {
+  if (!activeChannel) return;
+  if (!confirm(`¿Estás seguro de que deseas eliminar el canal "${activeChannel.name}"? Esta acción borrará todos sus mensajes permanentemente.`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/channels/${activeChannel._id}`, {
+      method: 'DELETE'
+    });
+    const data = await response.json();
+    if (response.ok) {
+      // Handled by WebSocket message 'channel_deleted'
+    } else {
+      showToastError(data.error || 'Error al eliminar el canal');
+    }
+  } catch (err) {
+    showToastError('Error de conexión al eliminar el canal');
+  }
+}
+
+// Leave Channel by Member (Requirement 10)
+async function leaveActiveChannel() {
+  if (!activeChannel) return;
+  if (!confirm(`¿Estás seguro de que deseas salir del canal "${activeChannel.name}"?`)) {
+    return;
+  }
+
+  try {
+    const response = await fetch(`/api/channels/${activeChannel._id}/membership`, {
+      method: 'DELETE'
+    });
+    const data = await response.json();
+    if (response.ok) {
+      // Invalidate local cache of key
+      unlockedPrivateChannels.delete(activeChannel._id);
+
+      // Reset Active Channel
+      activeChannel = null;
+      activeChannelName.textContent = 'Selecciona un canal';
+      messagesContainer.innerHTML = `
+        <div class="welcome-message">
+          <p>Selecciona un canal del panel izquierdo para comenzar a chatear.</p>
+        </div>
+      `;
+      messageForm.classList.add('hidden');
+      if (channelActions) channelActions.innerHTML = '';
+
+      // Reload channels in sidebar
+      await loadChannels();
+    } else {
+      showToastError(data.error || 'Error al salir del canal');
+    }
+  } catch (err) {
+    showToastError('Error de conexión al salir del canal');
+  }
 }
 
 // Run Initializer

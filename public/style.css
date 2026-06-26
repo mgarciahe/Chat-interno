@@ -263,7 +263,53 @@ body {
 
 .sidebar-footer form {
   display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+/* R1: Selector de tipo de canal */
+.channel-type-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.type-btn {
+  font-family: var(--font-stack);
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 7px 0;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--bg-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color var(--transition-speed), color var(--transition-speed), border-color var(--transition-speed);
+  text-align: center;
+}
+
+.type-btn:hover {
+  border-color: var(--accent-color);
+  color: var(--text-main);
+}
+
+.type-btn.active {
+  background-color: var(--accent-color);
+  color: #fff;
+  border-color: var(--accent-color);
+}
+
+.channel-create-row {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  width: 100%;
+  align-items: center;
+}
+
+.channel-create-row input {
+  flex: 1;
+  min-width: 0;
 }
 
 .sidebar-footer input {
@@ -283,17 +329,20 @@ body {
 }
 
 .btn-action-add {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   flex-shrink: 0;
   padding: 0;
   background-color: var(--accent-color);
   color: #fff;
-  border-radius: 6px;
-  font-size: 1.2rem;
+  border-radius: 8px;
+  font-size: 1.5rem;
   display: flex;
   justify-content: center;
   align-items: center;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-speed), transform 0.1s;
 }
 
 .btn-action-add:hover {
@@ -805,4 +854,138 @@ body {
 @keyframes slideUp {
   from { transform: translateY(8px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+/* Private Channels and Memberships (Requirement 1.1, 3.1, 7.5, 9.6) */
+#create-channel-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.channel-create-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.channel-create-row input {
+  flex: 1;
+}
+
+#new-channel-key {
+  width: 100%;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-main);
+  font-family: var(--font-stack);
+  font-size: 0.85rem;
+  transition: border-color var(--transition-speed);
+}
+
+#new-channel-key:focus {
+  outline: none;
+  border-color: var(--accent-color);
+}
+
+/* Channel header actions */
+.channel-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.btn-header-danger {
+  background-color: transparent;
+  border: 1px solid var(--text-danger);
+  color: var(--text-danger);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: var(--font-stack);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+}
+
+.btn-header-danger:hover {
+  background-color: var(--text-danger);
+  color: #fff;
+}
+
+.btn-header-secondary {
+  background-color: transparent;
+  border: 1px solid var(--text-muted);
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-family: var(--font-stack);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+}
+
+.btn-header-secondary:hover {
+  background-color: var(--border-color);
+  color: var(--text-main);
+}
+
+/* Modal Overlay & Dialog Card */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+  transition: opacity var(--transition-speed) ease-in-out;
+}
+
+.modal-card {
+  background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-tertiary) 100%);
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  padding: 30px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: var(--shadow-md);
+  animation: slideUp var(--transition-speed) ease-out;
+}
+
+.modal-header h3 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text-main);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.modal-actions .btn {
+  flex: 1;
+}
+
+.btn-secondary {
+  background-color: var(--border-color);
+  color: var(--text-main);
+}
+
+.btn-secondary:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.lock-icon {
+  color: var(--accent-color);
+  font-size: 0.95rem;
 }

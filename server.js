@@ -18,6 +18,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const multer = require('multer');
 
+// Memory session tracking for private channel access (Requirement 5.5)
+const verifiedChannels = {}; // userId -> Set of channelIds
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });
@@ -177,7 +180,7 @@ app.post('/api/auth/register', checkDbConnection, authLimiter, async (req, res) 
     // Set active session cookie (Requirement 1.1)
     setSessionCookie(res, newUser._id);
 
-    return res.status(201).json({ username: newUser.username });
+    return res.status(201).json({ username: newUser.username, userId: newUser._id });
   } catch (err) {
     return res.status(500).json({ error: 'Error al registrar el usuario' });
   }
@@ -212,7 +215,7 @@ app.post('/api/auth/login', checkDbConnection, authLimiter, async (req, res) => 
     // Set signed session cookie (Requirement 2.4)
     setSessionCookie(res, user._id);
 
-    return res.json({ username: user.username });
+    return res.json({ username: user.username, userId: user._id });
   } catch (err) {
     return res.status(500).json({ error: 'Error al iniciar sesion' });
   }
@@ -234,7 +237,7 @@ app.get('/api/session', async (req, res) => {
     if (!user) {
       return res.json({ username: null });
     }
-    return res.json({ username: user.username });
+    return res.json({ username: user.username, userId: user._id });
   } catch (err) {
     return res.json({ username: null });
   }
@@ -242,6 +245,10 @@ app.get('/api/session', async (req, res) => {
 
 // Logout
 app.delete('/api/session', (req, res) => {
+  const userId = req.signedCookies.userId;
+  if (userId) {
+    delete verifiedChannels[userId.toString()];
+  }
   // Clear cookie with exact same options (Requirement 4.2)
   res.clearCookie('userId', {
     signed: true,
@@ -278,7 +285,8 @@ const requireAuth = async (req, res, next) => {
 // Get channels list
 app.get('/api/channels', requireAuth, checkDbConnection, async (req, res) => {
   try {
-    const channels = await Channel.find({}).sort({ name: 1 });
+    // Exclude accessKeyHash (Requirement 2.2, 6.2)
+    const channels = await Channel.find({}).select('-accessKeyHash').sort({ name: 1 });
     return res.json(channels);
   } catch (err) {
     return res.status(500).json({ error: 'Error al obtener los canales' });
@@ -287,7 +295,7 @@ app.get('/api/channels', requireAuth, checkDbConnection, async (req, res) => {
 
 // Create new channel
 app.post('/api/channels', requireAuth, checkDbConnection, creationLimiter, async (req, res) => {
-  const { name } = req.body;
+  const { name, isPrivate: isPrivateRaw, accessKey } = req.body;
 
   if (!name || typeof name !== 'string') {
     return res.status(400).json({ error: 'El nombre del canal no puede estar vacio' });
@@ -302,17 +310,56 @@ app.post('/api/channels', requireAuth, checkDbConnection, creationLimiter, async
     return res.status(400).json({ error: 'El nombre del canal no puede superar 64 caracteres' });
   }
 
+  // R4.3: isPrivate must be declared explicitly as a boolean
+  const isPrivate = isPrivateRaw === true || isPrivateRaw === 'true';
+  const hasKey = typeof accessKey === 'string' && accessKey.trim() !== '';
+
+  // R5.1: Private channel without key
+  if (isPrivate && !hasKey) {
+    return res.status(400).json({ error: 'La clave de acceso es obligatoria para canales privados' });
+  }
+
+  // R5.2: Private channel with invalid key format
+  if (isPrivate && hasKey && !/^[a-zA-Z0-9]{7}$/.test(accessKey)) {
+    return res.status(400).json({ error: 'La clave debe tener exactamente 7 caracteres alfanuméricos' });
+  }
+
+  // R5.3: Public channel with key provided
+  if (!isPrivate && hasKey) {
+    return res.status(400).json({ error: 'Los canales públicos no pueden tener clave de acceso' });
+  }
+
+  // R4.1 + R4.2: Build channel data
+  let accessKeyHash = null;
+  if (isPrivate && hasKey) {
+    try {
+      accessKeyHash = await bcrypt.hash(accessKey, 10);
+    } catch (hashErr) {
+      return res.status(500).json({ error: 'Error al procesar la clave de acceso' });
+    }
+  }
+
   try {
-    const newChannel = new Channel({ name: trimmedName });
+    const newChannel = new Channel({
+      name: trimmedName,
+      creatorId: req.user._id,
+      isPrivate,
+      accessKeyHash,
+      members: []
+    });
     await newChannel.save();
+
+    // Sanitize for broadcast — never expose the hash (R4.2)
+    const channelObj = newChannel.toObject();
+    delete channelObj.accessKeyHash;
 
     // Broadcast new channel to all connected WebSockets
     broadcastToAll({
       type: 'channel_created',
-      channel: newChannel
+      channel: channelObj
     });
 
-    return res.status(201).json(newChannel);
+    return res.status(201).json(channelObj);
   } catch (err) {
     if (err.code === 11000) {
       return res.status(409).json({ error: 'Ya existe un canal con ese nombre' });
@@ -330,9 +377,24 @@ app.get('/api/channels/:id/messages', requireAuth, checkDbConnection, async (req
   }
 
   try {
-    const channelExists = await Channel.findById(channelId);
-    if (!channelExists) {
+    const channel = await Channel.findById(channelId);
+    if (!channel) {
       return res.status(404).json({ error: 'El canal especificado no existe' });
+    }
+
+    const userId = req.user._id.toString();
+    const isCreator = channel.creatorId && channel.creatorId.toString() === userId;
+
+    if (channel.isPrivate) {
+      const hasVerified = verifiedChannels[userId] && verifiedChannels[userId].has(channelId);
+      if (!isCreator && !hasVerified) {
+        return res.status(403).json({ error: 'Acceso denegado: se requiere clave de acceso' });
+      }
+    } else {
+      // Public channel: if not the creator, automatically add to members (Requirement 1.16)
+      if (!isCreator) {
+        await Channel.findByIdAndUpdate(channelId, { $addToSet: { members: req.user._id } });
+      }
     }
 
     const messages = await Message.find({ channelId })
@@ -444,6 +506,17 @@ app.post('/api/channels/:id/audio', requireAuth, checkDbConnection, creationLimi
         return res.status(404).json({ error: 'El canal especificado no existe' });
       }
 
+      // Access verification for private channel audio messages (Requirement 5.1)
+      const userId = req.user._id.toString();
+      const isCreator = channel.creatorId && channel.creatorId.toString() === userId;
+      if (channel.isPrivate) {
+        const hasVerified = verifiedChannels[userId] && verifiedChannels[userId].has(channelId);
+        if (!isCreator && !hasVerified) {
+          if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath);
+          return res.status(403).json({ error: 'Acceso denegado: se requiere clave de acceso' });
+        }
+      }
+
       const audioUrl = `/uploads/audio/${uniqueFilename}`;
       const newMessage = new Message({
         channelId: channel._id,
@@ -487,6 +560,137 @@ app.get('/uploads/audio/:filename', requireAuth, (req, res) => {
 
   // Serve static file
   res.sendFile(filePath);
+});
+
+// Verify Private Channel Key (Requirement 4.1 - 4.7, 8.3, 8.4)
+app.post('/api/channels/:id/verify-key', requireAuth, checkDbConnection, async (req, res) => {
+  const channelId = req.params.id;
+  const { accessKey } = req.body;
+
+  if (!mongoose.Types.ObjectId.isValid(channelId)) {
+    return res.status(400).json({ error: 'Identificador de canal no valido' });
+  }
+
+  if (accessKey === undefined || accessKey === '') {
+    return res.status(400).json({ error: 'La clave de acceso es requerida' });
+  }
+
+  if (typeof accessKey !== 'string' || !/^[a-zA-Z0-9]{7}$/.test(accessKey)) {
+    return res.status(400).json({ error: 'La clave debe tener exactamente 7 caracteres alfanuméricos' });
+  }
+
+  try {
+    const channel = await Channel.findById(channelId);
+    if (!channel) {
+      return res.status(404).json({ error: 'El canal especificado no existe' });
+    }
+
+    if (!channel.isPrivate) {
+      return res.status(400).json({ error: 'Este canal no requiere clave de acceso' });
+    }
+
+    const isMatch = await bcrypt.compare(accessKey, channel.accessKeyHash || '');
+    if (!isMatch) {
+      return res.status(403).json({ error: 'Clave de acceso incorrecta' });
+    }
+
+    // Register access in memory session (Requirement 5.5)
+    const userId = req.user._id.toString();
+    if (!verifiedChannels[userId]) {
+      verifiedChannels[userId] = new Set();
+    }
+    verifiedChannels[userId].add(channelId);
+
+    // Add user to members list if not creator (Requirement 10.2)
+    if (channel.creatorId.toString() !== userId) {
+      await Channel.findByIdAndUpdate(channelId, { $addToSet: { members: req.user._id } });
+    }
+
+    // Return channel object without accessKeyHash (Requirement 6.2)
+    const channelObj = channel.toObject();
+    delete channelObj.accessKeyHash;
+
+    return res.json(channelObj);
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al verificar la clave de acceso' });
+  }
+});
+
+// Delete Channel (Requirement 9.1 - 9.8)
+app.delete('/api/channels/:id', requireAuth, checkDbConnection, async (req, res) => {
+  const channelId = req.params.id;
+
+  if (!mongoose.Types.ObjectId.isValid(channelId)) {
+    return res.status(400).json({ error: 'Identificador de canal no valido' });
+  }
+
+  try {
+    const channel = await Channel.findById(channelId);
+    if (!channel) {
+      return res.status(404).json({ error: 'El canal especificado no existe' });
+    }
+
+    if (channel.creatorId.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ error: 'Solo el creador puede eliminar el canal' });
+    }
+
+    // Delete all messages in the channel (Requirement 9.4)
+    await Message.deleteMany({ channelId: channel._id });
+
+    // Delete the channel itself (Requirement 9.4)
+    await Channel.findByIdAndDelete(channel._id);
+
+    // Broadcast deletion to all connected WebSockets (Requirement 9.5)
+    broadcastToAll({
+      type: 'channel_deleted',
+      channelId: channel._id.toString()
+    });
+
+    return res.json({ success: true, message: 'Canal eliminado exitosamente' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al eliminar el canal' });
+  }
+});
+
+// Leave Channel (Requirement 10.1 - 10.8)
+app.delete('/api/channels/:id/membership', requireAuth, checkDbConnection, async (req, res) => {
+  const channelId = req.params.id;
+
+  if (!mongoose.Types.ObjectId.isValid(channelId)) {
+    return res.status(400).json({ error: 'Identificador de canal no valido' });
+  }
+
+  try {
+    const channel = await Channel.findById(channelId);
+    if (!channel) {
+      return res.status(404).json({ error: 'El canal especificado no existe' });
+    }
+
+    const userId = req.user._id.toString();
+    if (channel.creatorId.toString() === userId) {
+      return res.status(403).json({ error: 'El creador no puede salirse del canal; use la opción de eliminar canal' });
+    }
+
+    // Check membership (Requirement 10.8)
+    const isMember = channel.members && channel.members.map(m => m.toString()).includes(userId);
+    if (!isMember) {
+      return res.status(400).json({ error: 'El usuario no es miembro de este canal' });
+    }
+
+    // Remove user from members list (Requirement 10.2)
+    await Channel.findByIdAndUpdate(channel._id, { $pull: { members: req.user._id } });
+
+    // Invalidate access in session if private (Requirement 10.4)
+    if (channel.isPrivate) {
+      if (verifiedChannels[userId]) {
+        verifiedChannels[userId].delete(channelId);
+      }
+    }
+
+    return res.json({ success: true, message: 'Has salido del canal voluntariamente' });
+  } catch (err) {
+    return res.status(500).json({ error: 'Error al salir del canal' });
+  }
 });
 
 // Realtime active connections counter
@@ -570,7 +774,43 @@ wss.on('connection', (ws) => {
         // Subscribe client to a specific channel
         const { channelName } = data;
         if (channelName && typeof channelName === 'string') {
-          ws.currentChannel = channelName.trim();
+          const trimmedName = channelName.trim();
+          try {
+            const channel = await Channel.findOne({ name: trimmedName });
+            if (!channel) {
+              ws.send(JSON.stringify({
+                type: 'error',
+                message: 'El canal de destino no existe'
+              }));
+              return;
+            }
+
+            const userId = ws.userId;
+            const isCreator = channel.creatorId && channel.creatorId.toString() === userId;
+
+            if (channel.isPrivate) {
+              const hasVerified = verifiedChannels[userId] && verifiedChannels[userId].has(channel._id.toString());
+              if (!isCreator && !hasVerified) {
+                ws.send(JSON.stringify({
+                  type: 'error',
+                  message: 'Acceso denegado al canal privado'
+                }));
+                return; // Do NOT set currentChannel
+              }
+            } else {
+              // Public channel: automatically add membership if not creator (Requirement 1.16, 10.5)
+              if (!isCreator) {
+                await Channel.findByIdAndUpdate(channel._id, { $addToSet: { members: userId } });
+              }
+            }
+
+            ws.currentChannel = trimmedName;
+          } catch (err) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Error al procesar la suscripción al canal'
+            }));
+          }
         }
       } else if (data.type === 'message') {
         const { channelName, content } = data;
@@ -592,6 +832,20 @@ wss.on('connection', (ws) => {
             message: 'El canal de destino no existe'
           }));
           return;
+        }
+
+        // Access check for private channels
+        const userId = ws.userId;
+        const isCreator = channel.creatorId && channel.creatorId.toString() === userId;
+        if (channel.isPrivate) {
+          const hasVerified = verifiedChannels[userId] && verifiedChannels[userId].has(channel._id.toString());
+          if (!isCreator && !hasVerified) {
+            ws.send(JSON.stringify({
+              type: 'error',
+              message: 'Acceso denegado: se requiere clave de acceso'
+            }));
+            return;
+          }
         }
 
         // Save message with the authenticated username from session cookie

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,6 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
   <!-- Login Screen -->
   <div id="login-container" class="container">
@@ -46,12 +48,14 @@
         </div>
         <div class="form-group">
           <label for="register-username">Nombre de pantalla</label>
-          <input type="text" id="register-username" autocomplete="off" maxlength="32" placeholder="Ej. JuanPerez" required>
+          <input type="text" id="register-username" autocomplete="off" maxlength="32" placeholder="Ej. JuanPerez"
+            required>
           <span class="char-counter" id="register-char-counter">0/32</span>
         </div>
         <div class="form-group">
           <label for="register-password">Contraseña</label>
-          <input type="password" id="register-password" autocomplete="new-password" placeholder="Mínimo 8 caracteres" required>
+          <input type="password" id="register-password" autocomplete="new-password" placeholder="Mínimo 8 caracteres"
+            required>
         </div>
         <div id="register-error" class="error-msg hidden"></div>
         <button type="submit" class="btn btn-primary">Crear Cuenta</button>
@@ -66,7 +70,7 @@
       <div class="sidebar-header">
         <h2>Canales</h2>
       </div>
-      
+
       <div class="channels-section">
         <ul id="channels-list">
           <!-- Channels loaded dynamically -->
@@ -75,8 +79,20 @@
 
       <div class="sidebar-footer">
         <form id="create-channel-form">
-          <input type="text" id="new-channel-input" autocomplete="off" maxlength="64" placeholder="Nuevo canal..." required>
-          <button type="submit" class="btn btn-action-add" title="Crear canal">+</button>
+          <!-- R1: Selector de tipo de canal -->
+          <div class="channel-type-selector">
+            <button type="button" class="type-btn active" id="type-btn-public">Público</button>
+            <button type="button" class="type-btn" id="type-btn-private">Privado</button>
+          </div>
+          <!-- Fila: nombre + botón crear -->
+          <div class="channel-create-row">
+            <input type="text" id="new-channel-input" autocomplete="off" maxlength="64"
+              placeholder="Nuevo canal..." required>
+            <button type="submit" class="btn-action-add" title="Crear canal">+</button>
+          </div>
+          <!-- R2: Campo clave (condicional, oculto por defecto) -->
+          <input type="password" id="new-channel-key" autocomplete="new-password"
+            placeholder="Clave de acceso (7 caracteres alfanuméricos)" class="hidden">
         </form>
         <div id="create-channel-error" class="error-msg hidden"></div>
       </div>
@@ -89,6 +105,7 @@
           <span class="hashtag">#</span>
           <h3 id="active-channel-name">Selecciona un canal</h3>
         </div>
+        <div id="channel-actions" class="channel-actions"></div>
       </header>
 
       <div class="messages-container" id="messages-container">
@@ -111,7 +128,7 @@
             <button type="submit" class="btn btn-send">Enviar</button>
           </div>
         </form>
-        
+
         <!-- Recording Overlay Container (Requirement 1.4) -->
         <div id="recording-container" class="recording-container hidden">
           <span class="recording-indicator"></span>
@@ -156,6 +173,29 @@
     </section>
   </div>
 
+  <!-- Modal for Private Channel Access Key (Requirement 3.1) -->
+  <div id="key-modal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3>Acceso a Canal Privado</h3>
+        <p class="subtitle" style="margin-bottom: 15px;">Este canal está protegido. Ingresa la clave de acceso para
+          unirte.</p>
+      </div>
+      <form id="key-form">
+        <div class="form-group">
+          <label for="channel-access-key">Clave de acceso</label>
+          <input type="password" id="channel-access-key" maxlength="7" placeholder="Clave de 7 caracteres" required>
+        </div>
+        <div id="key-error" class="error-msg hidden"></div>
+        <div class="modal-actions">
+          <button type="button" id="cancel-key-btn" class="btn btn-secondary">Cancelar</button>
+          <button type="submit" id="confirm-key-btn" class="btn btn-primary">Confirmar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script src="app.js"></script>
 </body>
+
 </html>
