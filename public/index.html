@@ -14,17 +14,47 @@
   <div id="login-container" class="container">
     <div class="card login-card">
       <div class="card-header">
-        <h1>Bienvenido al Chat</h1>
-        <p class="subtitle">Introduce tu nombre de pantalla para continuar</p>
+        <h1 id="auth-title">Iniciar Sesión</h1>
+        <p class="subtitle" id="auth-subtitle">Ingresa tus credenciales para acceder al chat</p>
       </div>
+
+      <!-- Toggle Tabs -->
+      <div class="auth-tabs">
+        <button id="tab-login" class="auth-tab active">Iniciar Sesión</button>
+        <button id="tab-register" class="auth-tab">Registrarse</button>
+      </div>
+
+      <!-- Login Form -->
       <form id="login-form">
         <div class="form-group">
-          <label for="username-input">Nombre de pantalla</label>
-          <input type="text" id="username-input" autocomplete="off" maxlength="32" placeholder="Ej. JuanPerez" required>
-          <span class="char-counter" id="login-char-counter">0/32</span>
+          <label for="login-email">Correo electrónico</label>
+          <input type="email" id="login-email" autocomplete="email" placeholder="correo@ejemplo.com" required>
+        </div>
+        <div class="form-group">
+          <label for="login-password">Contraseña</label>
+          <input type="password" id="login-password" autocomplete="current-password" placeholder="••••••••" required>
         </div>
         <div id="login-error" class="error-msg hidden"></div>
         <button type="submit" class="btn btn-primary">Ingresar al Chat</button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="register-form" class="hidden">
+        <div class="form-group">
+          <label for="register-email">Correo electrónico</label>
+          <input type="email" id="register-email" autocomplete="email" placeholder="correo@ejemplo.com" required>
+        </div>
+        <div class="form-group">
+          <label for="register-username">Nombre de pantalla</label>
+          <input type="text" id="register-username" autocomplete="off" maxlength="32" placeholder="Ej. JuanPerez" required>
+          <span class="char-counter" id="register-char-counter">0/32</span>
+        </div>
+        <div class="form-group">
+          <label for="register-password">Contraseña</label>
+          <input type="password" id="register-password" autocomplete="new-password" placeholder="Mínimo 8 caracteres" required>
+        </div>
+        <div id="register-error" class="error-msg hidden"></div>
+        <button type="submit" class="btn btn-primary">Crear Cuenta</button>
       </form>
     </div>
   </div>
@@ -76,8 +106,20 @@
               <span class="char-counter" id="message-char-counter">0/2000</span>
             </div>
           </div>
-          <button type="submit" class="btn btn-send">Enviar</button>
+          <div class="chat-actions">
+            <button type="button" id="record-btn" class="btn-action-record" title="Grabar mensaje de audio">🎤</button>
+            <button type="submit" class="btn btn-send">Enviar</button>
+          </div>
         </form>
+        
+        <!-- Recording Overlay Container (Requirement 1.4) -->
+        <div id="recording-container" class="recording-container hidden">
+          <span class="recording-indicator"></span>
+          <span id="recording-timer" class="recording-timer">00:00</span>
+          <button type="button" id="cancel-record-btn" class="btn-record-cancel">Cancelar</button>
+          <button type="button" id="stop-record-btn" class="btn-record-stop">Enviar Audio</button>
+        </div>
+
         <div id="message-error" class="error-msg error-msg-toast hidden"></div>
       </footer>
     </main>

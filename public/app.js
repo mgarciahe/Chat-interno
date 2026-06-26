@@ -7,10 +7,24 @@ let reconnectTimer = null;
 // DOM Elements
 const loginContainer = document.getElementById('login-container');
 const mainContainer = document.getElementById('main-container');
+
+// Auth page elements
+const authTitle = document.getElementById('auth-title');
+const authSubtitle = document.getElementById('auth-subtitle');
+const tabLogin = document.getElementById('tab-login');
+const tabRegister = document.getElementById('tab-register');
+
 const loginForm = document.getElementById('login-form');
-const usernameInput = document.getElementById('username-input');
-const loginCharCounter = document.getElementById('login-char-counter');
+const loginEmailInput = document.getElementById('login-email');
+const loginPasswordInput = document.getElementById('login-password');
 const loginError = document.getElementById('login-error');
+
+const registerForm = document.getElementById('register-form');
+const registerEmailInput = document.getElementById('register-email');
+const registerUsernameInput = document.getElementById('register-username');
+const registerPasswordInput = document.getElementById('register-password');
+const registerCharCounter = document.getElementById('register-char-counter');
+const registerError = document.getElementById('register-error');
 
 const channelsList = document.getElementById('channels-list');
 const createChannelForm = document.getElementById('create-channel-form');
@@ -30,8 +44,8 @@ const currentUsername = document.getElementById('current-username');
 const logoutBtn = document.getElementById('logout-btn');
 
 // Character counters
-usernameInput.addEventListener('input', () => {
-  loginCharCounter.textContent = `${usernameInput.value.length}/32`;
+registerUsernameInput.addEventListener('input', () => {
+  registerCharCounter.textContent = `${registerUsernameInput.value.length}/32`;
 });
 
 messageInput.addEventListener('input', () => {
@@ -40,6 +54,29 @@ messageInput.addEventListener('input', () => {
   // Auto-resize textarea height based on content
   messageInput.style.height = 'auto';
   messageInput.style.height = `${messageInput.scrollHeight}px`;
+});
+
+// Tab Switching
+tabLogin.addEventListener('click', () => {
+  tabLogin.classList.add('active');
+  tabRegister.classList.remove('active');
+  loginForm.classList.remove('hidden');
+  registerForm.classList.add('hidden');
+  authTitle.textContent = 'Iniciar Sesión';
+  authSubtitle.textContent = 'Ingresa tus credenciales para acceder al chat';
+  loginError.classList.add('hidden');
+  registerError.classList.add('hidden');
+});
+
+tabRegister.addEventListener('click', () => {
+  tabRegister.classList.add('active');
+  tabLogin.classList.remove('active');
+  registerForm.classList.remove('hidden');
+  loginForm.classList.add('hidden');
+  authTitle.textContent = 'Registrarse';
+  authSubtitle.textContent = 'Crea una cuenta para comenzar a chatear';
+  loginError.classList.add('hidden');
+  registerError.classList.add('hidden');
 });
 
 // Initialize App
@@ -64,8 +101,16 @@ function showLogin() {
   loginContainer.classList.remove('hidden');
   mainContainer.classList.add('hidden');
   loginError.classList.add('hidden');
-  usernameInput.value = '';
-  loginCharCounter.textContent = '0/32';
+  registerError.classList.add('hidden');
+  loginEmailInput.value = '';
+  loginPasswordInput.value = '';
+  registerEmailInput.value = '';
+  registerUsernameInput.value = '';
+  registerPasswordInput.value = '';
+  registerCharCounter.textContent = '0/32';
+  
+  // Default to login tab
+  tabLogin.click();
 }
 
 // Show Chat Workspace
@@ -87,22 +132,19 @@ loginForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   loginError.classList.add('hidden');
   
-  const username = usernameInput.value.trim();
-  if (username.length === 0) {
-    showError(loginError, 'El nombre no puede estar vacio');
-    return;
-  }
+  const email = loginEmailInput.value.trim();
+  const password = loginPasswordInput.value;
   
-  if (username.length > 32) {
-    showError(loginError, 'El nombre no puede superar 32 caracteres');
+  if (email.length === 0 || password.length === 0) {
+    showError(loginError, 'El correo y la contraseña son requeridos');
     return;
   }
 
   try {
-    const response = await fetch('/api/session', {
+    const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username })
+      body: JSON.stringify({ email, password })
     });
     
     const data = await response.json();
@@ -115,6 +157,40 @@ loginForm.addEventListener('submit', async (e) => {
     }
   } catch (err) {
     showError(loginError, 'Error al conectar con el servidor');
+  }
+});
+
+// Register Form Submit
+registerForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  registerError.classList.add('hidden');
+  
+  const email = registerEmailInput.value.trim();
+  const username = registerUsernameInput.value.trim();
+  const password = registerPasswordInput.value;
+  
+  if (email.length === 0 || username.length === 0 || password.length === 0) {
+    showError(registerError, 'Todos los campos son requeridos');
+    return;
+  }
+
+  try {
+    const response = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, username, password })
+    });
+    
+    const data = await response.json();
+    
+    if (response.ok) {
+      currentUser = data.username;
+      showWorkspace();
+    } else {
+      showError(registerError, data.error || 'Error al crear la cuenta');
+    }
+  } catch (err) {
+    showError(registerError, 'Error al conectar con el servidor');
   }
 });
 
@@ -373,7 +449,29 @@ function appendMessageUI(msg, checkScroll = true) {
   meta.appendChild(author);
   meta.appendChild(time);
   
-  const contentNode = renderSafeMessageContent(msg.content);
+  let contentNode;
+  if (msg.type === 'audio') {
+    const audioWrapper = document.createElement('div');
+    audioWrapper.className = 'message-audio-container';
+    
+    const audioElement = document.createElement('audio');
+    audioElement.src = msg.audioUrl;
+    audioElement.controls = true;
+    audioElement.className = 'message-audio-player';
+    
+    // Set fallback error handler if file is missing (Requirement 4.4)
+    audioElement.onerror = () => {
+      const errorSpan = document.createElement('span');
+      errorSpan.className = 'audio-unavailable-msg';
+      errorSpan.textContent = 'Audio no disponible';
+      audioElement.replaceWith(errorSpan);
+    };
+    
+    audioWrapper.appendChild(audioElement);
+    contentNode = audioWrapper;
+  } else {
+    contentNode = renderSafeMessageContent(msg.content);
+  }
 
   body.appendChild(meta);
   body.appendChild(contentNode);
@@ -382,6 +480,10 @@ function appendMessageUI(msg, checkScroll = true) {
   card.appendChild(body);
 
   messagesContainer.appendChild(card);
+  
+  if (checkScroll) {
+    scrollToBottom();
+  }
 }
 
 // Send Message Form Submit
@@ -526,6 +628,156 @@ function connectWebSocket() {
 window.addEventListener('resize', () => {
   scrollToBottom(false);
 });
+
+// Audio Recording State Variables
+let mediaRecorder = null;
+let audioChunks = [];
+let recordingInterval = null;
+let recordingStartTime = null;
+
+// Get recording DOM elements
+const recordBtn = document.getElementById('record-btn');
+const recordingContainer = document.getElementById('recording-container');
+const recordingTimer = document.getElementById('recording-timer');
+const cancelRecordBtn = document.getElementById('cancel-record-btn');
+const stopRecordBtn = document.getElementById('stop-record-btn');
+
+// Attach recording event listeners
+if (recordBtn) recordBtn.addEventListener('click', startRecording);
+if (cancelRecordBtn) cancelRecordBtn.addEventListener('click', cancelRecording);
+if (stopRecordBtn) stopRecordBtn.addEventListener('click', stopAndSendRecording);
+
+async function startRecording() {
+  try {
+    // Request permission (Requirement 1.1)
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    
+    // Set up MediaRecorder in audio/webm with codecs=opus (Requirement 1.2)
+    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+    audioChunks = [];
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunks.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      // Stop all tracks to release microphone (good practice)
+      stream.getTracks().forEach(track => track.stop());
+    };
+
+    mediaRecorder.start();
+    
+    // Show recording UI (Requirement 1.4)
+    messageForm.classList.add('hidden');
+    recordingContainer.classList.remove('hidden');
+    
+    recordingStartTime = Date.now();
+    updateTimer();
+    recordingInterval = setInterval(updateTimer, 1000);
+  } catch (err) {
+    // Permission denied (Requirement 1.3)
+    showToastError('El acceso al micrófono es necesario para grabar audio');
+  }
+}
+
+function updateTimer() {
+  const elapsedSeconds = Math.floor((Date.now() - recordingStartTime) / 1000);
+  
+  // Format MM:SS
+  const mins = String(Math.floor(elapsedSeconds / 60)).padStart(2, '0');
+  const secs = String(elapsedSeconds % 60).padStart(2, '0');
+  recordingTimer.textContent = `${mins}:${secs}`;
+  
+  // Max duration 120s limit (Requirement 1.6)
+  if (elapsedSeconds >= 120) {
+    showToastError('Se ha alcanzado la duración máxima de grabación (120s)');
+    stopAndSendRecording();
+  }
+}
+
+function cancelRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  clearInterval(recordingInterval);
+  cleanupRecordingState();
+}
+
+async function stopAndSendRecording() {
+  clearInterval(recordingInterval);
+  
+  if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+    cleanupRecordingState();
+    return;
+  }
+  
+  // Wait for mediaRecorder to stop completely and finalize Blob
+  const stopPromise = new Promise(resolve => {
+    mediaRecorder.onstop = () => {
+      resolve();
+    };
+  });
+  
+  mediaRecorder.stop();
+  await stopPromise;
+  
+  const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+  const duration = Math.floor((Date.now() - recordingStartTime) / 1000);
+  
+  // Client validation (Requirement 5.1)
+  if (duration <= 0 || audioBlob.size === 0) {
+    showToastError('La grabación es demasiado corta');
+    cleanupRecordingState();
+    return;
+  }
+
+  // Show loading indicator (Requirement 5.2)
+  stopRecordBtn.textContent = 'Enviando...';
+  stopRecordBtn.disabled = true;
+  cancelRecordBtn.disabled = true;
+
+  // Send multipart/form-data to server (Requirement 2.1)
+  const formData = new FormData();
+  formData.append('audio', audioBlob, 'recording.webm');
+
+  try {
+    const response = await fetch(`/api/channels/${activeChannel._id}/audio`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (response.ok) {
+      // Success (Requirement 5.4)
+      cleanupRecordingState();
+    } else {
+      // Server error (Requirement 5.3)
+      const data = await response.json();
+      showToastError(data.error || 'Error al enviar el audio');
+      resetLoadingState();
+    }
+  } catch (err) {
+    showToastError('Error de red al enviar el audio');
+    resetLoadingState();
+  }
+}
+
+function resetLoadingState() {
+  stopRecordBtn.textContent = 'Enviar Audio';
+  stopRecordBtn.disabled = false;
+  cancelRecordBtn.disabled = false;
+}
+
+function cleanupRecordingState() {
+  recordingContainer.classList.add('hidden');
+  messageForm.classList.remove('hidden');
+  stopRecordBtn.textContent = 'Enviar Audio';
+  stopRecordBtn.disabled = false;
+  cancelRecordBtn.disabled = false;
+  mediaRecorder = null;
+  audioChunks = [];
+}
 
 // Run Initializer
 init();

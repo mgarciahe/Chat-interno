@@ -14,8 +14,21 @@ const messageSchema = new mongoose.Schema({
   },
   content: {
     type: String,
-    required: true,
+    required: function() {
+      return this.type !== 'audio'; // Required unless it's an audio message
+    },
     maxlength: 2000
+  },
+  type: {
+    type: String,
+    enum: ['text', 'audio'],
+    default: 'text'
+  },
+  audioUrl: {
+    type: String,
+    required: function() {
+      return this.type === 'audio'; // Required for audio messages
+    }
   }
 }, {
   timestamps: { createdAt: true, updatedAt: false }
